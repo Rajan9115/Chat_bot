@@ -14,5 +14,5 @@ This is a full-stack AI-powered chatbot application using **React (client)** and
 
 ---
 
-## 📁 Project Structure
+
 
