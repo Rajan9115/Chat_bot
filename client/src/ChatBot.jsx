@@ -31,7 +31,7 @@ const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post("http://localhost:5000/api/message", {
+      const response = await axios.post("https://chat-bot-backend-cxj8.onrender.com/api/message", {
         message: input,
       });
 
