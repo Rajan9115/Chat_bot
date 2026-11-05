@@ -3,28 +3,23 @@ const cors = require("cors");
 const axios = require("axios");
 require("dotenv").config();
 
-
 const app = express();
 const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
 
-// Replace this with your actual OpenRouter API key
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-
-
-
- 
+// Google Gemini API Key from .env
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 const fetchResponse = async (userMessage) => {
   const headers = {
-    Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+    Authorization: `Bearer ${GEMINI_API_KEY}`,
     "Content-Type": "application/json",  
   };
 
   const data = {
-    model: "openai/gpt-3.5-turbo", // You can replace with `google/gemini-pro` or any other
+    model: "gemini-3.5-flash",
     messages: [
       {
         role: "system",
@@ -38,14 +33,17 @@ const fetchResponse = async (userMessage) => {
   };
 
   try {
-    const response = await axios.post("https://openrouter.ai/api/v1/chat/completions", data, {
-      headers,
-    });
+    // Google Gemini OpenAI-compatible endpoint
+    const response = await axios.post(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+      data,
+      { headers }
+    );
 
     const botReply = response.data.choices[0].message.content.trim();
     return botReply || "Sorry, I couldn't understand that.";
   } catch (error) {
-    console.error("OpenRouter API Error:", error.response?.data || error.message);
+    console.error("Gemini API Error:", error.response?.data || error.message);
     return "⚠️ Something went wrong with the AI.";
   }
 };
