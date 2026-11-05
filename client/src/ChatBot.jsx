@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000/api/message";
+
 const ChatBot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -31,7 +33,7 @@ const ChatBot = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post("https://chat-bot-backend-cxj8.onrender.com/api/message", {
+      const response = await axios.post(API_URL, {
         message: input,
       });
 
