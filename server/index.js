@@ -19,11 +19,12 @@ const fetchResponse = async (userMessage) => {
   };
 
   const data = {
-    model: "gemini-3.5-flash",
+    model: "gemini-3.5-flash-lite",
+    max_tokens: 800,
     messages: [
       {
         role: "system",
-        content: "You are a helpful, friendly chatbot assistant. Respond clearly and conversationally.",
+        content: "You are a helpful, friendly chatbot assistant. Respond clearly, concisely, and conversationally.",
       },
       {
         role: "user",
