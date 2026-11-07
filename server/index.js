@@ -48,9 +48,19 @@ const fetchResponse = async (userMessage) => {
   }
 };
 
-app.post("/api/message", async (req, res) => {
-  const userMessage = req.body.message;
+// Health check route
+app.get(["/", "/api", "/index.js"], (req, res) => {
+  res.json({ status: "ok", message: "🚀 Chatbot backend is running on Vercel!" });
+});
+
+// Chat message route - accepts /api/message, /index.js, or /
+app.post(["/api/message", "/index.js", "/"], async (req, res) => {
+  const userMessage = req.body?.message;
   console.log("User:", userMessage);
+
+  if (!userMessage) {
+    return res.status(400).json({ reply: "Please provide a message." });
+  }
 
   try {
     const responseText = await fetchResponse(userMessage);

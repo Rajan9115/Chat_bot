@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "https://chat-bot-backend-cxj8.onrender.com/api/message";
+const rawApiUrl = process.env.REACT_APP_API_URL || "https://chat-bot-server-xi.vercel.app/api/message";
+const API_URL = rawApiUrl.endsWith("/api/message")
+  ? rawApiUrl
+  : `${rawApiUrl.replace(/\/+$/, "")}/api/message`;
 
 const ChatBot = () => {
   const [messages, setMessages] = useState([]);
