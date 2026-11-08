@@ -15,6 +15,7 @@ const ChatBot = () => {
   const [voiceError, setVoiceError] = useState("");
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
   const [isSpeakingEnabled, setIsSpeakingEnabled] = useState(false);
+  const [selectedLang, setSelectedLang] = useState("en-US");
 
   const messageEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -57,8 +58,19 @@ const ChatBot = () => {
       window.speechSynthesis.cancel(); // Stop any ongoing speech
       const cleanText = text.replace(/[*#_`~]/g, ""); // Strip markdown symbols
       const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.lang = selectedLang;
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
+
+      // Find matching voice for selected language if available
+      const voices = window.speechSynthesis.getVoices();
+      const matchedVoice = voices.find((v) =>
+        v.lang.toLowerCase().replace("_", "-").startsWith(selectedLang.slice(0, 2).toLowerCase())
+      );
+      if (matchedVoice) {
+        utterance.voice = matchedVoice;
+      }
+
       window.speechSynthesis.speak(utterance);
     } catch (err) {
       console.error("Speech synthesis error:", err);
@@ -105,12 +117,16 @@ const ChatBot = () => {
       const recognition = new SpeechRecognition();
       recognition.continuous = true; // Continuous listening
       recognition.interimResults = true; // Show words as user speaks
-      recognition.lang = "en-US";
+      recognition.lang = selectedLang;
 
       recognition.onstart = () => {
         setIsListening(true);
         isListeningRef.current = true;
-        setVoiceStatus("Listening... speak into your microphone");
+        setVoiceStatus(
+          selectedLang === "hi-IN"
+            ? "सुन रहा हूँ... बोलिए..."
+            : "Listening... speak into your microphone"
+        );
       };
 
       recognition.onresult = (event) => {
@@ -247,25 +263,43 @@ const ChatBot = () => {
 
   return (
     <div className="w-full max-w-xl bg-white p-6 rounded-xl shadow-lg flex flex-col h-[650px] dark:bg-gray-900">
-      {/* Header bar with Voice Output Toggle */}
+      {/* Header bar with Language Selector and Voice Output Toggle */}
       <div className="flex justify-between items-center pb-3 border-b mb-2 dark:border-gray-700">
         <div className="flex items-center gap-2">
           <span className="text-xl">🤖</span>
           <h2 className="font-semibold text-gray-800 dark:text-gray-200">AI Assistant</h2>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            if (isSpeakingEnabled && "speechSynthesis" in window) {
-              window.speechSynthesis.cancel();
-            }
-            setIsSpeakingEnabled(!isSpeakingEnabled);
-          }}
-          title={isSpeakingEnabled ? "Mute voice replies" : "Enable voice replies"}
-          className="text-xs font-medium px-2.5 py-1 rounded-full border transition flex items-center gap-1 bg-gray-50 hover:bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border-gray-300 dark:border-gray-600"
-        >
-          {isSpeakingEnabled ? "🔊 Voice On" : "🔇 Voice Off"}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Language Selector */}
+          <select
+            value={selectedLang}
+            onChange={(e) => {
+              if (isListening) stopListening();
+              setSelectedLang(e.target.value);
+            }}
+            title="Choose language / भाषा चुनें"
+            className="text-xs font-medium py-1 px-2.5 rounded-full border bg-gray-50 hover:bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 focus:outline-none cursor-pointer"
+          >
+            <option value="en-US">🇺🇸 English (US)</option>
+            <option value="en-IN">🇮🇳 English (India)</option>
+            <option value="hi-IN">🇮🇳 हिन्दी (Hindi)</option>
+          </select>
+
+          {/* Voice Output Toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              if (isSpeakingEnabled && "speechSynthesis" in window) {
+                window.speechSynthesis.cancel();
+              }
+              setIsSpeakingEnabled(!isSpeakingEnabled);
+            }}
+            title={isSpeakingEnabled ? "Mute voice replies" : "Enable voice replies"}
+            className="text-xs font-medium px-2.5 py-1 rounded-full border transition flex items-center gap-1 bg-gray-50 hover:bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border-gray-300 dark:border-gray-600"
+          >
+            {isSpeakingEnabled ? "🔊 Voice On" : "🔇 Voice Off"}
+          </button>
+        </div>
       </div>
 
       {/* Chat area */}
@@ -326,7 +360,15 @@ const ChatBot = () => {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder={isListening ? "🎙️ Listening... speak now..." : "Type a message or use voice..."}
+          placeholder={
+            isListening
+              ? selectedLang === "hi-IN"
+                ? "🎙️ सुन रहा हूँ... बोलिए..."
+                : "🎙️ Listening... speak now..."
+              : selectedLang === "hi-IN"
+              ? "संदेश टाइप करें या बोलें..."
+              : "Type a message or use voice..."
+          }
         />
 
         {/* Microphone Button */}
