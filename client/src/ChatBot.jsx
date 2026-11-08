@@ -10,8 +10,13 @@ const ChatBot = () => {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(false);
+  const [isSpeakingEnabled, setIsSpeakingEnabled] = useState(false);
+
   const messageEndRef = useRef(null);
   const inputRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   // Auto-focus on input when component mounts
   useEffect(() => {
@@ -23,13 +28,103 @@ const ChatBot = () => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const sendMessage = async () => {
-    if (!input.trim()) return;
+  // Initialize Web Speech API (Speech Recognition)
+  useEffect(() => {
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (SpeechRecognition) {
+      setIsSpeechSupported(true);
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false; // Stop when the speaker pauses
+      recognition.interimResults = true; // Show words as user speaks
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+      };
+
+      recognition.onresult = (event) => {
+        let currentTranscript = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setInput(currentTranscript);
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+        setIsListening(false);
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    } else {
+      setIsSpeechSupported(false);
+      console.warn("Web Speech API is not supported in this browser.");
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+      if ("speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Text-to-speech helper (Speaks bot reply)
+  const speakReply = (text) => {
+    if (!isSpeakingEnabled || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel(); // Stop any ongoing speech
+      const cleanText = text.replace(/[*#_`~]/g, ""); // Strip markdown symbols
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.error("Speech synthesis error:", err);
+    }
+  };
+
+  // Toggle voice listening
+  const toggleListening = () => {
+    if (!isSpeechSupported) {
+      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current?.start();
+      } catch (err) {
+        console.error("Could not start speech recognition:", err);
+      }
+    }
+  };
+
+  const sendMessage = async (overrideText) => {
+    const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
+    if (!textToSend) return;
+
+    // If currently listening, stop recognition
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
 
     const userMsg = {
       sender: "user",
-      text: input,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      text: textToSend,
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
@@ -37,20 +132,24 @@ const ChatBot = () => {
 
     try {
       const response = await axios.post(API_URL, {
-        message: input,
+        message: textToSend,
       });
 
+      const replyText = response.data.reply;
       const botMsg = {
         sender: "bot",
-        text: response.data.reply,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        text: replyText,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, botMsg]);
+
+      // Speak reply if voice is enabled
+      speakReply(replyText);
     } catch (error) {
       const errorMsg = {
-       sender: "bot",
+        sender: "bot",
         text: "⚠️ Oops! Something went wrong. Please try again.",
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
@@ -60,9 +159,29 @@ const ChatBot = () => {
 
   return (
     <div className="w-full max-w-xl bg-white p-6 rounded-xl shadow-lg flex flex-col h-[650px] dark:bg-gray-900">
+      {/* Header bar with Voice Output Toggle */}
+      <div className="flex justify-between items-center pb-3 border-b mb-2 dark:border-gray-700">
+        <div className="flex items-center gap-2">
+          <span className="text-xl">🤖</span>
+          <h2 className="font-semibold text-gray-800 dark:text-gray-200">AI Assistant</h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            if (isSpeakingEnabled && "speechSynthesis" in window) {
+              window.speechSynthesis.cancel();
+            }
+            setIsSpeakingEnabled(!isSpeakingEnabled);
+          }}
+          title={isSpeakingEnabled ? "Mute voice replies" : "Enable voice replies"}
+          className="text-xs font-medium px-2.5 py-1 rounded-full border transition flex items-center gap-1 bg-gray-50 hover:bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border-gray-300 dark:border-gray-600"
+        >
+          {isSpeakingEnabled ? "🔊 Voice On" : "🔇 Voice Off"}
+        </button>
+      </div>
 
       {/* Chat area */}
-      <div className="flex flex-col gap-2 p-4 overflow-y-auto bg-gray-100 dark:bg-gray-800 flex-1">
+      <div className="flex flex-col gap-2 p-4 overflow-y-auto bg-gray-100 dark:bg-gray-800 flex-1 rounded-lg">
         {messages.map((msg, idx) => (
           <div
             key={idx}
@@ -78,8 +197,8 @@ const ChatBot = () => {
               <div className="text-sm font-semibold">
                 {msg.sender === "user" ? "You" : "Bot"}
               </div>
-              <div className="text-base">{msg.text}</div>
-              <div className="text-[0.75rem] text-gray-500 mt-1">{msg.time}</div>
+              <div className="text-base whitespace-pre-wrap">{msg.text}</div>
+              <div className="text-[0.75rem] text-gray-500 dark:text-gray-400 mt-1">{msg.time}</div>
             </div>
           </div>
         ))}
@@ -99,18 +218,36 @@ const ChatBot = () => {
       </div>
 
       {/* Input section */}
-      <div className="flex gap-2 mt-2">
+      <div className="flex gap-2 mt-3 items-center">
         <input 
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          className="w-full p-2 border rounded dark:bg-gray-800 dark:text-white dark:border-gray-600"
-          placeholder="Type your message..."
+          className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder={isListening ? "🎙️ Listening... speak clearly..." : "Type a message or use voice..."}
         />
+
+        {/* Microphone Button */}
+        {isSpeechSupported && (
+          <button
+            type="button"
+            onClick={toggleListening}
+            title={isListening ? "Stop listening" : "Click to speak"}
+            className={`p-2.5 px-3.5 rounded-lg border transition-all flex items-center justify-center text-lg ${
+              isListening
+                ? "bg-red-500 text-white animate-pulse border-red-600 shadow-md scale-105"
+                : "bg-gray-100 hover:bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 border-gray-300 dark:border-gray-600"
+            }`}
+          >
+            {isListening ? "⏹️" : "🎙️"}
+          </button>
+        )}
+
+        {/* Send Button */}
         <button
-          onClick={sendMessage}
-          className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition"
+          onClick={() => sendMessage()}
+          className="bg-blue-500 text-white px-5 py-2.5 rounded-lg hover:bg-blue-600 transition font-medium"
         >
           Send
         </button>
