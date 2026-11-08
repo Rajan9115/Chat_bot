@@ -11,12 +11,15 @@ const ChatBot = () => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [voiceStatus, setVoiceStatus] = useState("");
+  const [voiceError, setVoiceError] = useState("");
   const [isSpeechSupported, setIsSpeechSupported] = useState(false);
   const [isSpeakingEnabled, setIsSpeakingEnabled] = useState(false);
 
   const messageEndRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
+  const isListeningRef = useRef(false);
 
   // Auto-focus on input when component mounts
   useEffect(() => {
@@ -28,48 +31,18 @@ const ChatBot = () => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Initialize Web Speech API (Speech Recognition)
+  // Check if browser supports Web Speech API
   useEffect(() => {
     const SpeechRecognition =
       window.SpeechRecognition || window.webkitSpeechRecognition;
-
-    if (SpeechRecognition) {
-      setIsSpeechSupported(true);
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false; // Stop when the speaker pauses
-      recognition.interimResults = true; // Show words as user speaks
-      recognition.lang = "en-US";
-
-      recognition.onstart = () => {
-        setIsListening(true);
-      };
-
-      recognition.onresult = (event) => {
-        let currentTranscript = "";
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          currentTranscript += event.results[i][0].transcript;
-        }
-        setInput(currentTranscript);
-      };
-
-      recognition.onerror = (event) => {
-        console.error("Speech recognition error:", event.error);
-        setIsListening(false);
-      };
-
-      recognition.onend = () => {
-        setIsListening(false);
-      };
-
-      recognitionRef.current = recognition;
-    } else {
-      setIsSpeechSupported(false);
-      console.warn("Web Speech API is not supported in this browser.");
-    }
+    setIsSpeechSupported(Boolean(SpeechRecognition));
 
     return () => {
+      isListeningRef.current = false;
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch (e) {}
       }
       if ("speechSynthesis" in window) {
         window.speechSynthesis.cancel();
@@ -92,22 +65,137 @@ const ChatBot = () => {
     }
   };
 
-  // Toggle voice listening
-  const toggleListening = () => {
-    if (!isSpeechSupported) {
-      alert("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
+  // Start speech recognition session with permission check and auto-keepalive
+  const startListening = async () => {
+    setVoiceError("");
+    setVoiceStatus("");
+
+    const SpeechRecognition =
+      window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError("Speech recognition is not supported in this browser. Please use Chrome, Edge, or Safari.");
       return;
     }
 
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      try {
-        recognitionRef.current?.start();
-      } catch (err) {
-        console.error("Could not start speech recognition:", err);
+    // Explicitly prompt/verify microphone permission via getUserMedia
+    try {
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        setVoiceStatus("Accessing microphone...");
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Immediately release stream so SpeechRecognition can bind it exclusively
+        stream.getTracks().forEach((track) => track.stop());
       }
+    } catch (err) {
+      console.error("Microphone permission check failed:", err);
+      setVoiceError("Microphone access blocked. Click the lock icon in your address bar to enable mic permissions.");
+      setIsListening(false);
+      isListeningRef.current = false;
+      return;
+    }
+
+    // Abort any previous session
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.abort();
+      } catch (e) {}
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true; // Continuous listening
+      recognition.interimResults = true; // Show words as user speaks
+      recognition.lang = "en-US";
+
+      recognition.onstart = () => {
+        setIsListening(true);
+        isListeningRef.current = true;
+        setVoiceStatus("Listening... speak into your microphone");
+      };
+
+      recognition.onresult = (event) => {
+        let finalTranscript = "";
+        let interimTranscript = "";
+
+        for (let i = 0; i < event.results.length; i++) {
+          const item = event.results[i];
+          if (item.isFinal) {
+            finalTranscript += item[0].transcript + " ";
+          } else {
+            interimTranscript += item[0].transcript;
+          }
+        }
+
+        const fullText = (finalTranscript + interimTranscript).trim();
+        if (fullText) {
+          setInput(fullText);
+          setVoiceStatus(`Heard: "${fullText.slice(-35)}"`);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.warn("Speech recognition event:", event.error);
+
+        // "no-speech" is not fatal - user is just paused or hasn't started yet!
+        if (event.error === "no-speech") {
+          setVoiceStatus("Listening... (say something!)");
+          return;
+        }
+
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setVoiceError("Microphone permission blocked. Please allow mic in browser settings.");
+        } else if (event.error === "audio-capture") {
+          setVoiceError("No microphone hardware found on your device.");
+        } else if (event.error === "network") {
+          setVoiceError("Speech recognition network error. Please check your internet connection.");
+        } else {
+          setVoiceError(`Voice notice: ${event.error}`);
+        }
+
+        setIsListening(false);
+        isListeningRef.current = false;
+      };
+
+      recognition.onend = () => {
+        // If user is still meant to be listening (and no fatal error occurred), auto-restart
+        if (isListeningRef.current) {
+          try {
+            recognition.start();
+            return;
+          } catch (e) {}
+        }
+        setIsListening(false);
+        isListeningRef.current = false;
+        setVoiceStatus("");
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
+      console.error("Could not start speech recognition:", err);
+      setVoiceError("Could not start voice recognition: " + err.message);
+      setIsListening(false);
+      isListeningRef.current = false;
+    }
+  };
+
+  const stopListening = () => {
+    isListeningRef.current = false;
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (e) {}
+    }
+    setIsListening(false);
+    setVoiceStatus("");
+  };
+
+  // Toggle voice listening
+  const toggleListening = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening();
     }
   };
 
@@ -115,11 +203,11 @@ const ChatBot = () => {
     const textToSend = (typeof overrideText === "string" ? overrideText : input).trim();
     if (!textToSend) return;
 
-    // If currently listening, stop recognition
+    // Stop listening when sending
     if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
+      stopListening();
     }
+    setVoiceError("");
 
     const userMsg = {
       sender: "user",
@@ -217,15 +305,28 @@ const ChatBot = () => {
         <div ref={messageEndRef} />
       </div>
 
+      {/* Voice Status & Error Feedback Area */}
+      {isListening && voiceStatus && (
+        <div className="flex items-center gap-2 text-xs text-blue-600 dark:text-blue-400 font-medium px-1 mt-2">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+          <span>{voiceStatus}</span>
+        </div>
+      )}
+      {voiceError && (
+        <div className="text-xs text-red-600 dark:text-red-400 font-medium px-1 mt-2 flex items-center gap-1">
+          <span>⚠️ {voiceError}</span>
+        </div>
+      )}
+
       {/* Input section */}
-      <div className="flex gap-2 mt-3 items-center">
+      <div className="flex gap-2 mt-2 items-center">
         <input 
           ref={inputRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
           className="w-full p-2.5 border rounded-lg dark:bg-gray-800 dark:text-white dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          placeholder={isListening ? "🎙️ Listening... speak clearly..." : "Type a message or use voice..."}
+          placeholder={isListening ? "🎙️ Listening... speak now..." : "Type a message or use voice..."}
         />
 
         {/* Microphone Button */}
